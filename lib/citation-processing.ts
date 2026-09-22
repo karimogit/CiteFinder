@@ -52,7 +52,9 @@ const FACTUAL_PATTERNS = [
   // Results and conclusions
   /\b(?:conclude.*that|results.*demonstrate|findings.*suggest|analysis.*reveals|study.*finds|research.*confirms|data.*supports|evidence.*indicates)\b/i,
   // Performance metrics
-  /\b(?:efficiency.*\d+%|accuracy.*\d+%|speed.*\d+%|precision.*\d+%|recall.*\d+%|f1.*score|processing.*time|computational.*cost|memory.*usage|storage.*requirements)\b/i
+  /\b(?:efficiency.*\d+%|accuracy.*\d+%|speed.*\d+%|precision.*\d+%|recall.*\d+%|f1.*score|processing.*time|computational.*cost|memory.*usage|storage.*requirements)\b/i,
+  // Percentages sit on a non-word character, so a trailing \b never matches them.
+  /\b(?:accuracy|precision|recall|performance|improvement|reduction|increase|decrease|efficiency|f1)\b[^%]{0,80}?\d+(?:\.\d+)?%/i
 ]
 
 // Factual indicator pattern for validation

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Mail, MessageSquare, Github, Twitter, Linkedin, Send } from 'lucide-react'
+import { Mail, Github, Twitter, Linkedin, Send } from 'lucide-react'
 import Link from 'next/link'
 
 export default function ContactPage() {
@@ -11,24 +11,14 @@ export default function ContactPage() {
     subject: '',
     message: ''
   })
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [emailOpened, setEmailOpened] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSubmitting(true)
-    
-    // Simulate form submission
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    setSubmitStatus('success')
-    setIsSubmitting(false)
-    
-    // Reset form after 3 seconds
-    setTimeout(() => {
-      setSubmitStatus('idle')
-      setFormData({ name: '', email: '', subject: '', message: '' })
-    }, 3000)
+    const subject = `[${formData.subject}] CiteFinder`
+    const body = `Name: ${formData.name}\nEmail: ${formData.email}\n\n${formData.message}`
+    window.location.href = `mailto:support@citefinder.app?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    setEmailOpened(true)
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -75,17 +65,6 @@ export default function ContactPage() {
                     <h3 className="font-semibold text-gray-900">Email</h3>
                     <p className="text-gray-600">support@citefinder.app</p>
                     <p className="text-sm text-gray-500">We typically respond within 24 hours</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start">
-                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-4">
-                    <MessageSquare className="w-5 h-5 text-green-600" aria-hidden="true" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Discord Community</h3>
-                    <p className="text-gray-600">Join our Discord server</p>
-                    <p className="text-sm text-gray-500">Connect with other researchers</p>
                   </div>
                 </div>
                 
@@ -173,18 +152,14 @@ export default function ContactPage() {
               Send us a Message
             </h2>
             
-            {submitStatus === 'success' && (
-              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg" role="alert">
+            <p className="mb-6 text-sm text-gray-600">
+              Sending opens your email app with this message addressed to support@citefinder.app. Nothing is stored on our servers.
+            </p>
+
+            {emailOpened && (
+              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg" role="status">
                 <p className="text-green-800 font-medium">
-                  Thank you! Your message has been sent successfully. We&apos;ll get back to you soon.
-                </p>
-              </div>
-            )}
-            
-            {submitStatus === 'error' && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg" role="alert">
-                <p className="text-red-800 font-medium">
-                  Sorry, there was an error sending your message. Please try again or email us directly.
+                  Your email app should be open with this message. If it did not open, email support@citefinder.app directly.
                 </p>
               </div>
             )}
@@ -264,20 +239,10 @@ export default function ContactPage() {
               
               <button
                 type="submit"
-                disabled={isSubmitting}
-                className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 hover-lift shadow-glow flex items-center justify-center"
+                className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 hover-lift shadow-glow flex items-center justify-center"
               >
-                {isSubmitting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4 mr-2" aria-hidden="true" />
-                    Send Message
-                  </>
-                )}
+                <Send className="w-4 h-4 mr-2" aria-hidden="true" />
+                Open email
               </button>
             </form>
           </section>

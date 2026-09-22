@@ -16,11 +16,15 @@ export interface Citation {
   id: string
   text: string
   authors?: string
+  authorList?: string[]
   year?: string
   title?: string
   confidence: number
   statement?: string
   supportingQuote?: string
+  url?: string
+  abstract?: string
+  similarity?: number
 }
 
 export interface StatementWithPosition {

@@ -3,7 +3,7 @@
 import { ExternalLink, Search, AlertCircle, BookOpen } from 'lucide-react'
 import { RelatedPaper } from '@/types'
 import { SIMILARITY_THRESHOLDS } from '@/lib/constants'
-import { extractSupportingQuote } from '@/lib/utils'
+import { extractSupportingQuote, isLinkableUrl } from '@/lib/utils'
 
 interface RelatedPapersProps {
   papers: RelatedPaper[]
@@ -179,6 +179,7 @@ function PapersTable({ papers, statement, selectedPapers, onPaperSelection }: Pa
       <div className="max-h-[600px] overflow-y-auto">
         {papers.map((paper) => {
           const isSelected = selectedPapers.some(p => p.id === paper.id)
+          const paperUrl = isLinkableUrl(paper.url) ? paper.url : undefined
           const supportingQuote = paper.supportingQuote || 
             (statement ? extractSupportingQuote(statement, paper.abstract) : undefined)
           
@@ -219,9 +220,9 @@ function PapersTable({ papers, statement, selectedPapers, onPaperSelection }: Pa
                 </div>
                 
                 <div className="col-span-2 flex justify-center gap-2">
-                  {paper.url && (
+                  {paperUrl && (
                     <a
-                      href={paper.url}
+                      href={paperUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center rounded border border-teal/20 bg-mist px-3 py-1 text-xs font-medium text-teal transition-colors hover:bg-mist-deep"
@@ -266,16 +267,16 @@ function PapersTable({ papers, statement, selectedPapers, onPaperSelection }: Pa
                   </div>
                 )}
                 
-                {paper.url && (
+                {paperUrl && (
                   <div className="flex justify-end">
                     <a
-                      href={paper.url}
+                      href={paperUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center rounded border border-teal/20 bg-mist px-3 py-2 text-xs font-medium text-teal transition-colors hover:bg-mist-deep"
                     >
                       <ExternalLink className="mr-1 h-3 w-3" aria-hidden="true" />
-                      {paper.url.includes('doi.org') ? 'View DOI' : 'Open Paper'}
+                      {paperUrl.includes('doi.org') ? 'View DOI' : 'Open Paper'}
                     </a>
                   </div>
                 )}

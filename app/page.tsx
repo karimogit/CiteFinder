@@ -8,6 +8,7 @@ import InteractiveText from '@/components/InteractiveText'
 import ReferencesGenerator from '@/components/ReferencesGenerator'
 import { useToast } from '@/components/ui/Toast'
 import { RelatedPaper, Citation, StatementWithPosition, ProcessResponse } from '@/types'
+import { SIMILARITY_THRESHOLDS } from '@/lib/constants'
 
 type FaqItem = {
   question: string
@@ -146,6 +147,10 @@ export default function Home() {
     }
   }
 
+  const visiblePaperCount = relatedPapers.filter(
+    (paper) => paper.similarity >= SIMILARITY_THRESHOLDS.MIN_DISPLAY
+  ).length
+
   const handleBackToUpload = () => {
     setCurrentStep('upload')
     setSelectedPapers([])
@@ -243,7 +248,10 @@ export default function Home() {
                   role="tabpanel"
                   aria-label="Upload PDF"
                 >
-                  <PDFUploader onFileUpload={handleFileUpload} />
+                  <PDFUploader
+                    onFileUpload={handleFileUpload}
+                    onError={(message) => showToast(message, 'error')}
+                  />
                 </div>
               )}
 
@@ -338,7 +346,7 @@ export default function Home() {
                     <div className="grid grid-cols-2 gap-3 lg:grid-cols-1 lg:gap-5">
                       {[
                         { id: 'statements-section', title: 'Statements', meta: `${statementsFound.length} extracted`, done: statementsFound.length > 0, action: 'View', enabled: true },
-                        { id: 'papers-section', title: 'Papers', meta: `${relatedPapers.length} found`, done: relatedPapers.length > 0, action: 'View', enabled: true },
+                        { id: 'papers-section', title: 'Papers', meta: `${visiblePaperCount} found`, done: visiblePaperCount > 0, action: 'View', enabled: true },
                         { id: null, title: 'Selection', meta: `${selectedPapers.length} selected`, done: selectedPapers.length > 0, action: 'Select papers', enabled: false },
                         { id: 'references-section', title: 'Generate', meta: 'Create refs', done: selectedPapers.length > 0, action: selectedPapers.length > 0 ? 'Generate' : 'Select first', enabled: selectedPapers.length > 0 },
                       ].map((step) => (

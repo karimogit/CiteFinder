@@ -4,8 +4,8 @@
   "description": "Automatically extract statements from your paper, find sources from the world's largest academic databases, and generate citations.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#667eea",
+  "background_color": "#f6f1e7",
+  "theme_color": "#0B2420",
   "orientation": "portrait-primary",
   "icons": [
     {
