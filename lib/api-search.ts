@@ -12,7 +12,10 @@ import {
   withTimeout, 
   extractKeyTermsFromStatement, 
   extractSupportingQuote,
-  generateId 
+  generateId,
+  cleanExternalText,
+  resolveExternalUrl,
+  toDoiUrl
 } from './utils'
 import { embedText, cosineSimilarity } from './embeddings'
 
@@ -25,8 +28,17 @@ interface SearchImplementations {
   getSemanticSimilarity: typeof getSemanticSimilarity
 }
 
-function stripXmlTags(value: string): string {
-  return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+interface OpenAlexAuthorship {
+  author?: { display_name?: string | null }
+}
+
+interface CrossRefAuthor {
+  given?: string
+  family?: string
+}
+
+interface PubMedAuthor {
+  name?: string
 }
 
 function extractPubMedAbstract(articleXml: string): string {
@@ -36,11 +48,64 @@ function extractPubMedAbstract(articleXml: string): string {
   }
 
   const abstract = abstractMatches
-    .map((match) => stripXmlTags(match[1]))
+    .map((match) => cleanExternalText(match[1]))
     .filter(Boolean)
     .join(' ')
 
   return abstract || 'No abstract available.'
+}
+
+function publicationYear(value: string | undefined): string {
+  if (!value) return 'Unknown'
+  const match = value.match(/\b(?:19|20)\d{2}\b/)
+  return match ? match[0] : 'Unknown'
+}
+
+function hasWholeTerm(text: string, term: string): boolean {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`\\b${escaped}\\b`, 'i').test(text)
+}
+
+function normalizeArxivUrl(url: string): string {
+  return url.trim().replace(/^http:\/\/(?:export\.)?arxiv\.org/i, 'https://arxiv.org')
+}
+
+/**
+ * Build arXiv queries from the user's terms.
+ * A category-only fallback is intentionally omitted: it returns unrelated papers.
+ */
+export function buildArxivQueries(searchQuery: string): string[] {
+  const keyTerms = searchQuery.split(' ').filter(term => term.length > 2)
+  if (keyTerms.length === 0) return []
+
+  const words = keyTerms.slice(0, 8)
+  const phrases: string[] = []
+  for (let i = 0; i < Math.min(words.length - 1, 3); i++) {
+    phrases.push(`"${words[i]} ${words[i + 1]}"`)
+  }
+
+  const queries = [
+    phrases.length > 0
+      ? `${phrases[0]} AND (${keyTerms.slice(0, 4).join(' OR ')})`
+      : keyTerms.slice(0, 5).join(' AND '),
+    keyTerms.slice(0, 5).join(' AND ')
+  ]
+
+  return [...new Set(queries.map(query => query.trim()).filter(Boolean))]
+}
+
+export function normalizeRelatedPapers(papers: RelatedPaper[]): RelatedPaper[] {
+  return papers.map((paper) => ({
+    ...paper,
+    abstract: paper.abstract?.trim() ? paper.abstract : 'No abstract available.'
+  }))
+}
+
+export function missingAbstractWarning(papers: RelatedPaper[]): string | undefined {
+  if (papers.some((paper) => /no abstract available/i.test(paper.abstract || ''))) {
+    return 'Some sources do not provide abstracts, so those matches were ranked using titles and available metadata only.'
+  }
+  return undefined
 }
 
 function buildSearchImplementations(overrides: Partial<SearchImplementations> = {}): SearchImplementations {
@@ -60,22 +125,7 @@ function buildSearchImplementations(overrides: Partial<SearchImplementations> = 
  */
 export async function searchArxiv(searchQuery: string): Promise<RelatedPaper[]> {
   try {
-    const keyTerms = searchQuery.split(' ').filter(term => term.length > 2)
-    const words = keyTerms.slice(0, 8)
-    
-    // Build phrase query
-    const phrases: string[] = []
-    for (let i = 0; i < Math.min(words.length - 1, 3); i++) {
-      phrases.push(`"${words[i]} ${words[i+1]}"`)
-    }
-    
-    const searchQueries = [
-      phrases.length > 0 
-        ? `${phrases[0]} AND (${keyTerms.slice(0, 4).join(' OR ')})`
-        : keyTerms.slice(0, 5).join(' AND '),
-      keyTerms.slice(0, 5).join(' AND '),
-      `cat:cs.* OR cat:eess.* OR cat:stat.ML`
-    ]
+    const searchQueries = buildArxivQueries(searchQuery)
     
     for (const query of searchQueries) {
       const response = await axios.get('http://export.arxiv.org/api/query', {
@@ -114,11 +164,11 @@ export async function searchArxiv(searchQuery: string): Promise<RelatedPaper[]> 
           }
           
           if (titleMatch && summaryMatch && idMatch) {
-            const title = titleMatch[1].trim()
-            const summary = summaryMatch[1].trim()
-            const arxivUrl = idMatch[1].trim()
+            const title = cleanExternalText(titleMatch[1])
+            const summary = cleanExternalText(summaryMatch[1])
+            const arxivUrl = normalizeArxivUrl(idMatch[1])
             const published = publishedMatch ? publishedMatch[1] : ''
-            const year = published ? new Date(published).getFullYear().toString() : 'Unknown'
+            const year = publicationYear(published)
             
             papers.push({
               id: generateId('arxiv'),
@@ -165,9 +215,11 @@ export async function searchOpenAlex(query: string): Promise<RelatedPaper[]> {
     const results = response.data.results || []
 
     for (const work of results) {
-      const authors = work.authorships 
-        ? work.authorships.map((a: any) => a.author?.display_name || 'Unknown Author') 
-        : ['Unknown Author']
+      const authors = work.authorships
+        ? (work.authorships as OpenAlexAuthorship[])
+            .map((authorship) => authorship.author?.display_name?.trim() || '')
+            .filter((name) => name.length > 0)
+        : []
       const year = work.publication_year ? work.publication_year.toString() : 'Unknown'
 
       // Reconstruct abstract from inverted index
@@ -199,10 +251,15 @@ export async function searchOpenAlex(query: string): Promise<RelatedPaper[]> {
       papers.push({
         id: generateId('openalex'),
         title: work.title || 'Untitled',
-        authors,
+        authors: authors.length > 0 ? authors : ['Unknown Author'],
         year,
         abstract,
-        url: work.doi ? `https://doi.org/${work.doi}` : work.open_access?.oa_url || work.openalex_url || '#',
+        url: resolveExternalUrl({
+          doi: work.doi,
+          oaUrl: work.open_access?.oa_url,
+          landingPageUrl: work.primary_location?.landing_page_url,
+          fallbackId: work.id
+        }),
         similarity: 0
       })
     }
@@ -237,25 +294,30 @@ export async function searchCrossRef(query: string): Promise<RelatedPaper[]> {
 
     for (const item of items) {
       if (item.title && item.title[0]) {
-        const authors = item.author 
-          ? item.author.map((a: any) => `${a.given || ''} ${a.family || ''}`.trim()).filter((n: string) => n.length > 0) 
-          : ['Unknown Author']
+        const authors = item.author
+          ? (item.author as CrossRefAuthor[])
+              .map((author) => `${author.given || ''} ${author.family || ''}`.trim())
+              .filter((name) => name.length > 0)
+          : []
         const year = item.published?.['date-parts']?.[0]?.[0]?.toString() || 'Unknown'
         
         let abstract = 'No abstract available.'
         if (item.abstract) {
-          abstract = item.abstract.length > 300 
-            ? item.abstract.substring(0, 300) + '...' 
-            : item.abstract
+          const cleaned = cleanExternalText(String(item.abstract))
+          if (cleaned) {
+            abstract = cleaned.length > 300
+              ? `${cleaned.substring(0, 300)}...`
+              : cleaned
+          }
         }
 
         papers.push({
           id: generateId('crossref'),
-          title: item.title[0],
-          authors,
+          title: cleanExternalText(String(item.title[0])) || 'Untitled',
+          authors: authors.length > 0 ? authors : ['Unknown Author'],
           year,
           abstract,
-          url: item.DOI ? `https://doi.org/${item.DOI}` : item.URL || '#',
+          url: toDoiUrl(item.DOI) || item.URL || '#',
           similarity: 0
         })
       }
@@ -320,14 +382,16 @@ export async function searchPubMed(query: string): Promise<RelatedPaper[]> {
         const summary = summaries[id]
         if (summary && summary.title) {
           const authors = summary.authors
-            ? summary.authors.map((a: any) => a.name)
-            : ['Unknown Author']
-          const year = summary.pubdate ? summary.pubdate.split(' ')[0] : 'Unknown'
+            ? (summary.authors as PubMedAuthor[])
+                .map((author) => author.name?.trim() || '')
+                .filter((name) => name.length > 0)
+            : []
+          const year = publicationYear(summary.pubdate)
 
           papers.push({
             id: generateId('pubmed'),
-            title: summary.title,
-            authors,
+            title: cleanExternalText(String(summary.title)) || 'Untitled',
+            authors: authors.length > 0 ? authors : ['Unknown Author'],
             year,
             abstract: abstractById.get(id) || 'No abstract available.',
             url: `https://pubmed.ncbi.nlm.nih.gov/${id}/`,
@@ -387,7 +451,7 @@ export function calculateLexicalSimilarity(searchQuery: string, paper: RelatedPa
   if (totalMatches >= 3) percentage = Math.max(percentage, 50)
   
   const domainTerms = ['research', 'study', 'analysis', 'method', 'approach', 'technique', 'system', 'model', 'data', 'results', 'conclusion']
-  const domainMatches = domainTerms.filter(term => title.includes(term) || abstract.includes(term)).length
+  const domainMatches = domainTerms.filter(term => hasWholeTerm(title, term) || hasWholeTerm(abstract, term)).length
   percentage += domainMatches * 2
   
   return Math.min(percentage, 100)
@@ -500,30 +564,21 @@ export async function findRelatedPapersFromStatements(
         })
       )
 
-      const rankedResults = scoredResults.sort((a, b) => {
-        if (b.semanticSimilarity !== a.semanticSimilarity) {
-          return b.semanticSimilarity - a.semanticSimilarity
-        }
-        return b.combinedScore - a.combinedScore
-      })
-
-      const filteredResults = rankedResults
-        .filter((item, index) => {
-          if (item.semanticSimilarity >= SIMILARITY_THRESHOLDS.MIN_SEMANTIC) return true
-          if (index === 0 && rankedResults.length > 0) return item.combinedScore >= SIMILARITY_THRESHOLDS.ACCEPTABLE
-          return item.combinedScore >= SIMILARITY_THRESHOLDS.HIGH_QUALITY
+      const rankedResults = scoredResults
+        .filter((item) => item.combinedScore >= SIMILARITY_THRESHOLDS.MIN_DISPLAY)
+        .sort((a, b) => {
+          if (b.semanticSimilarity !== a.semanticSimilarity) {
+            return b.semanticSimilarity - a.semanticSimilarity
+          }
+          return b.combinedScore - a.combinedScore
         })
         .slice(0, API_RESULT_LIMITS.MAX_PAPERS_PER_CITATION)
 
-      const selectedResults = filteredResults.length > 0
-        ? filteredResults
-        : rankedResults.slice(0, Math.min(rankedResults.length, 2))
-
-      for (const { result, semanticSimilarity, overlapScore } of selectedResults) {
+      for (const { result, semanticSimilarity, overlapScore, combinedScore } of rankedResults) {
         const authors = result.authors.join(', ')
         const year = result.year
 
-        result.similarity = Math.max(Math.round(semanticSimilarity * 100), Math.round(overlapScore))
+        result.similarity = combinedScore
 
         const supportingQuote = extractSupportingQuote(statement.text, result.abstract)
 
@@ -535,16 +590,23 @@ export async function findRelatedPapersFromStatements(
           : 0
         const rawConfidence = Math.max(semanticConfidence, overlapConfidence, CONFIDENCE.MIN)
         const confidence = Math.min(rawConfidence, CONFIDENCE.MAX)
+        const usableAbstract = result.abstract && !/no abstract available/i.test(result.abstract)
+          ? result.abstract
+          : undefined
 
         citations.push({
           id: `discovered-${idCounter++}`,
           text: `${authors} (${year}). ${result.title}.`,
           authors,
+          authorList: result.authors,
           year,
           title: result.title,
           confidence,
           statement: statement.text,
-          supportingQuote: supportingQuote || result.abstract
+          supportingQuote: supportingQuote || usableAbstract,
+          url: result.url && result.url !== '#' ? result.url : undefined,
+          abstract: usableAbstract,
+          similarity: combinedScore
         })
       }
     } catch (error) {
@@ -574,16 +636,29 @@ export async function searchRelatedPapers(
   for (const citation of discoveredCitations) {
     if (!citation.statement) continue
 
+    const authorList = citation.authorList && citation.authorList.length > 0
+      ? citation.authorList
+      : citation.authors
+        ? citation.authors.split(', ').map((name) => name.trim()).filter(Boolean)
+        : []
+    const similarity = typeof citation.similarity === 'number'
+      ? citation.similarity
+      : Math.round((citation.confidence || 0.5) * 100)
+
+    if (similarity < SIMILARITY_THRESHOLDS.MIN_DISPLAY) continue
+
     const paper: RelatedPaper = {
       id: citation.id,
       title: citation.title || 'Unknown Title',
-      authors: citation.authors ? citation.authors.split(', ') : ['Unknown Author'],
+      authors: authorList.length > 0 ? authorList : ['Unknown Author'],
       year: citation.year || 'Unknown',
-      abstract: citation.supportingQuote || 'No abstract available.',
-      url: citation.title 
-        ? `https://scholar.google.com/scholar?q=${encodeURIComponent(citation.title)}` 
-        : '#',
-      similarity: Math.round((citation.confidence || 0.5) * 100),
+      abstract: citation.abstract?.trim() || citation.supportingQuote || 'No abstract available.',
+      url: citation.url && citation.url !== '#'
+        ? citation.url
+        : citation.title
+          ? `https://scholar.google.com/scholar?q=${encodeURIComponent(citation.title)}`
+          : '#',
+      similarity,
       statement: citation.statement,
       supportingQuote: citation.supportingQuote
     }
@@ -621,7 +696,7 @@ export async function searchRelatedPapers(
         if (!seenTitles.has(paper.title.toLowerCase())) {
           const similarityScore = await implementations.calculateSimilarityScore(searchQuery, paper)
 
-          if (similarityScore < SIMILARITY_THRESHOLDS.MIN_COMBINED) continue
+          if (similarityScore < SIMILARITY_THRESHOLDS.MIN_DISPLAY) continue
 
           seenTitles.add(paper.title.toLowerCase())
           paper.similarity = similarityScore

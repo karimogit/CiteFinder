@@ -6,22 +6,28 @@ import { Upload, FileText } from 'lucide-react'
 
 interface PDFUploaderProps {
   onFileUpload: (file: File) => void
+  onError?: (message: string) => void
 }
 
-export default function PDFUploader({ onFileUpload }: PDFUploaderProps) {
+export default function PDFUploader({ onFileUpload, onError }: PDFUploaderProps) {
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       const file = acceptedFiles[0]
-      if (file.type === 'application/pdf') {
+      if (!file.type || file.type === 'application/pdf') {
         onFileUpload(file)
       } else {
-        alert('Please upload a PDF file')
+        onError?.('Please upload a PDF file')
       }
     }
-  }, [onFileUpload])
+  }, [onError, onFileUpload])
+
+  const onDropRejected = useCallback(() => {
+    onError?.('Please upload a PDF file')
+  }, [onError])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    onDropRejected,
     accept: {
       'application/pdf': ['.pdf']
     },

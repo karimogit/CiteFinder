@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { extractStatements } from '../lib/citation-processing'
-import { searchRelatedPapers } from '../lib/api-search'
-import type { Citation, RelatedPaper } from '../types'
+import { buildArxivQueries, calculateLexicalSimilarity, findRelatedPapersFromStatements, searchRelatedPapers } from '../lib/api-search'
+import { cleanExternalText, resolveExternalUrl, toDoiUrl } from '../lib/utils'
+import { formatInTextCitation, formatReference, formatReferenceList } from '../lib/references'
+import type { Citation, RelatedPaper, StatementWithPosition } from '../types'
 
 async function testStatementPositionsSurviveNormalization() {
   const text = [
@@ -72,11 +74,125 @@ async function testExistingCitationSearchUsesPerCitationCap() {
   assert.ok(result.some((paper) => paper.id.startsWith('two-')), 'later citations should still contribute papers after earlier ones consume their per-citation budget')
 }
 
+async function testPercentageClaimsAreExtracted() {
+  const text = 'Classification accuracy reached 95% on the held-out benchmark dataset today.'
+  const statements = extractStatements(text)
+  assert.ok(
+    statements.some((statement) => statement.text.includes('95%')),
+    'quantitative claims should match even though % is not a word character'
+  )
+}
+
+async function testSourceLinksAndMatchScoresStayHonest() {
+  assert.equal(toDoiUrl('https://doi.org/10.1000/xyz'), 'https://doi.org/10.1000/xyz')
+  assert.equal(toDoiUrl('10.1000/xyz'), 'https://doi.org/10.1000/xyz')
+  assert.equal(
+    resolveExternalUrl({ doi: 'https://doi.org/10.1000/xyz', fallbackId: 'https://openalex.org/W1' }),
+    'https://doi.org/10.1000/xyz'
+  )
+  assert.equal(resolveExternalUrl({ fallbackId: 'https://openalex.org/W1' }), 'https://openalex.org/W1')
+  assert.equal(cleanExternalText('<jats:p>Fish &amp; chips</jats:p>'), 'Fish & chips')
+  assert.ok(buildArxivQueries('environmental monitoring drones').every((query) => !query.includes('cat:')))
+  assert.deepEqual(buildArxivQueries('a an'), [])
+
+  const lexicalScore = calculateLexicalSimilarity('alpha beta gamma', {
+    id: 'lexical',
+    title: 'Gamma database alpha beta',
+    authors: ['Author'],
+    year: '2024',
+    abstract: 'No abstract available.',
+    similarity: 0
+  })
+  assert.equal(lexicalScore, 75, 'words inside longer tokens such as database should not count as the term data')
+
+  const statement: StatementWithPosition = {
+    text: 'Quantum error correction improves qubit fidelity by 12 percent in the lab.',
+    startIndex: 0,
+    endIndex: 70,
+    confidence: 0.8
+  }
+  const goodPaper: RelatedPaper = {
+    id: 'good-paper',
+    title: 'Quantum error correction',
+    authors: ['Doe, Jane', 'Smith JA'],
+    year: '2020',
+    abstract: 'Quantum error correction improves qubit fidelity in superconducting devices.',
+    url: 'https://doi.org/10.1000/good',
+    similarity: 0
+  }
+  const weakPaper: RelatedPaper = {
+    id: 'weak-paper',
+    title: 'Cooking pasta',
+    authors: ['Chef'],
+    year: '2019',
+    abstract: 'Boil water and salt the pot thoroughly before dinner service begins.',
+    url: 'https://doi.org/10.1000/weak',
+    similarity: 0
+  }
+
+  const discovered = await findRelatedPapersFromStatements([statement], {
+    searchArxiv: async () => [goodPaper, weakPaper],
+    searchOpenAlex: async () => [],
+    searchCrossRef: async () => [],
+    searchPubMed: async () => [],
+    getSemanticSimilarity: async (_text: string, paper: RelatedPaper) => paper.id === 'good-paper' ? 0.82 : 0.05
+  })
+
+  assert.equal(discovered.length, 1, 'papers below the 50% match threshold should not be returned')
+  assert.equal(discovered[0].url, 'https://doi.org/10.1000/good')
+  assert.ok((discovered[0].similarity || 0) >= 50)
+  assert.deepEqual(discovered[0].authorList, ['Doe, Jane', 'Smith JA'])
+
+  const related = await searchRelatedPapers(discovered, [statement])
+  assert.equal(related.length, 1)
+  assert.equal(related[0].url, 'https://doi.org/10.1000/good')
+  assert.deepEqual(related[0].authors, ['Doe, Jane', 'Smith JA'])
+  assert.ok(related[0].similarity >= 50)
+}
+
+async function testReferenceFormatting() {
+  const paper: RelatedPaper = {
+    id: 'paper-1',
+    title: 'Crop & Soil Monitoring',
+    authors: ['Doe, Jane', 'Smith JA', 'Lee, Ann'],
+    year: '2020',
+    abstract: 'Abstract',
+    similarity: 80,
+    url: 'https://doi.org/10.1000/crop'
+  }
+  const second: RelatedPaper = {
+    ...paper,
+    id: 'paper-2',
+    title: 'Second Study',
+    authors: ['Ada Lovelace']
+  }
+
+  assert.equal(formatInTextCitation(paper, 'apa'), '(Doe et al., 2020)')
+  assert.equal(
+    formatInTextCitation({ ...paper, authors: ['Doe, Jane', 'Smith JA'] }, 'apa'),
+    '(Doe & Smith, 2020)'
+  )
+  assert.match(formatReference(paper, 'apa'), /https:\/\/doi\.org\/10\.1000\/crop/)
+  const bibtex = formatReference(paper, 'bibtex')
+  assert.match(bibtex, /author = \{Doe, Jane and Smith JA and Lee, Ann\}/)
+  assert.match(bibtex, /title = \{Crop \\& Soil Monitoring\}/)
+  assert.match(bibtex, /url = \{https:\/\/doi\.org\/10\.1000\/crop\}/)
+  const key = bibtex.match(/@article\{([^,]+),/)?.[1]
+  assert.ok(key)
+  assert.equal(formatInTextCitation(paper, 'bibtex'), `\\cite{${key}}`)
+  const list = formatReferenceList([paper, second], 'bibtex')
+  assert.doesNotMatch(list, /^1\./m)
+  assert.equal(list.match(/@article\{/g)?.length, 2)
+}
+
 async function main() {
   const tests: Array<[string, () => Promise<void>]> = [
     ['statement positions survive normalization', testStatementPositionsSurviveNormalization],
     ['fallback extraction keeps every academic sentence', testFallbackExtractionIsStableAcrossMultipleMatches],
-    ['existing citation search uses per-citation cap', testExistingCitationSearchUsesPerCitationCap]
+    ['existing citation search uses per-citation cap', testExistingCitationSearchUsesPerCitationCap],
+    ['percentage claims are extracted', testPercentageClaimsAreExtracted],
+    ['source links and match scores stay honest', testSourceLinksAndMatchScoresStayHonest],
+    ['reference formatting keeps authors, urls, and bibtex valid', testReferenceFormatting]
   ]
 
   for (const [name, test] of tests) {

@@ -94,5 +94,9 @@ jspm_packages/
 
 # Temporary folders
 tmp/
-temp/ 
+temp/
+
+# Crash dumps accidentally captured on the host
+/core
+/core.* 
 /app/generated/prisma

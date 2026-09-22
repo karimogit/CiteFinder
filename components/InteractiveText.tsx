@@ -2,6 +2,7 @@
 
 import { ExternalLink } from 'lucide-react'
 import { RelatedPaper, StatementWithPosition } from '@/types'
+import { isLinkableUrl } from '@/lib/utils'
 
 interface InteractiveTextProps {
   statementsWithPositions: StatementWithPosition[]
@@ -54,7 +55,7 @@ export default function InteractiveText({
                   <li key={paper.id} className="flex items-start gap-2 text-xs text-ink-muted">
                     <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-teal" aria-hidden="true" />
                     <span className="min-w-0">
-                      {paper.url ? (
+                      {isLinkableUrl(paper.url) ? (
                         <a
                           href={paper.url}
                           target="_blank"

@@ -7,6 +7,17 @@ import {
   SIMILARITY_THRESHOLDS 
 } from './constants'
 
+const STOP_WORD_SET = new Set<string>(STOP_WORDS)
+
+const NAMED_XML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+}
+
 /**
  * Enforce a timeout on any async operation
  */
@@ -58,7 +69,7 @@ export function extractKeyTermsFromStatement(statement: string): string {
   IMPORTANT_PHRASES.forEach(phrase => {
     if (cleanedStatement.includes(phrase)) {
       preservedPhrases.push(phrase)
-      cleanedStatement = cleanedStatement.replace(phrase, '')
+      cleanedStatement = cleanedStatement.split(phrase).join('')
     }
   })
   
@@ -69,7 +80,7 @@ export function extractKeyTermsFromStatement(statement: string): string {
   // Split into words and filter out stop words
   const allWords = cleanedStatement
     .split(/\s+/)
-    .filter(word => word.length > 2 && !STOP_WORDS.includes(word as any))
+    .filter(word => word.length > 2 && !STOP_WORD_SET.has(word))
   
   // Combine priority words with other meaningful words
   const meaningfulWords = [...new Set([...priorityWords, ...allWords])]
@@ -206,5 +217,66 @@ export function extractTitle(text: string): string | undefined {
  * Generate a unique ID
  */
 export function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+}
+
+/**
+ * Turn a DOI or DOI URL into a single https://doi.org link.
+ * OpenAlex already returns full DOI URLs, so prefixing them again breaks the link.
+ */
+export function toDoiUrl(doi: string | null | undefined): string | undefined {
+  if (!doi) return undefined
+
+  let trimmed = doi.trim()
+  if (!trimmed || /^null$/i.test(trimmed)) return undefined
+
+  trimmed = trimmed.replace(/^doi:\s*/i, '')
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/^http:\/\//i, 'https://')
+  }
+
+  return `https://doi.org/${trimmed.replace(/^\/+/, '')}`
+}
+
+/**
+ * Prefer a DOI, then an open-access or landing-page URL, then a repository id.
+ */
+export function resolveExternalUrl(options: {
+  doi?: string | null
+  oaUrl?: string | null
+  landingPageUrl?: string | null
+  fallbackId?: string | null
+}): string {
+  return toDoiUrl(options.doi)
+    || options.oaUrl
+    || options.landingPageUrl
+    || options.fallbackId
+    || '#'
+}
+
+/**
+ * Strip markup and decode XML/HTML entities from academic API fields.
+ */
+export function cleanExternalText(value: string): string {
+  const withoutMarkup = value
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+
+  const decoded = withoutMarkup
+    .replace(/&#(\d+);/g, (entity, code: string) => {
+      const point = Number(code)
+      return Number.isFinite(point) ? String.fromCodePoint(point) : entity
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (entity, hex: string) => {
+      const point = Number.parseInt(hex, 16)
+      return Number.isFinite(point) ? String.fromCodePoint(point) : entity
+    })
+    .replace(/&([a-z]+);/gi, (entity, name: string) => NAMED_XML_ENTITIES[name.toLowerCase()] ?? entity)
+
+  return decoded.replace(/\s+/g, ' ').trim()
+}
+
+export function isLinkableUrl(url: string | undefined): url is string {
+  return Boolean(url && url !== '#' && !url.startsWith('about:'))
 }

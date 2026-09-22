@@ -2,7 +2,22 @@ import { pipeline, type FeatureExtractionPipeline } from '@xenova/transformers'
 
 let embeddingPipelinePromise: Promise<FeatureExtractionPipeline> | null = null
 
+const MAX_EMBEDDING_CACHE_ENTRIES = 200
 const embeddingCache = new Map<string, Promise<number[]>>()
+
+function rememberEmbedding(key: string, value: Promise<number[]>): void {
+  if (embeddingCache.has(key)) {
+    embeddingCache.delete(key)
+  }
+
+  embeddingCache.set(key, value)
+
+  while (embeddingCache.size > MAX_EMBEDDING_CACHE_ENTRIES) {
+    const oldest = embeddingCache.keys().next().value
+    if (oldest === undefined) break
+    embeddingCache.delete(oldest)
+  }
+}
 
 async function loadEmbeddingPipeline(): Promise<FeatureExtractionPipeline> {
   if (!embeddingPipelinePromise) {
@@ -23,7 +38,9 @@ export async function embedText(text: string): Promise<number[]> {
 
   let cached = embeddingCache.get(normalized)
 
-  if (!cached) {
+  if (cached) {
+    rememberEmbedding(normalized, cached)
+  } else {
     cached = (async () => {
       const extractor = await loadEmbeddingPipeline()
       const output = await extractor(normalized, {
@@ -46,10 +63,12 @@ export async function embedText(text: string): Promise<number[]> {
     })()
 
     cached.catch(() => {
-      embeddingCache.delete(normalized)
+      if (embeddingCache.get(normalized) === cached) {
+        embeddingCache.delete(normalized)
+      }
     })
 
-    embeddingCache.set(normalized, cached)
+    rememberEmbedding(normalized, cached)
   }
 
   return cached

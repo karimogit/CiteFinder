@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Citation, RelatedPaper, StatementWithPosition } from '@/types'
 import { extractCitations, extractStatements } from '@/lib/citation-processing'
-import { findRelatedPapersFromStatements, searchRelatedPapers } from '@/lib/api-search'
+import { findRelatedPapersFromStatements, missingAbstractWarning, normalizeRelatedPapers, searchRelatedPapers } from '@/lib/api-search'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
 const MAX_TEXT_INPUT_CHARS = 200_000
-const MISSING_ABSTRACT_PATTERN = /no abstract available/i
 
 export async function POST(request: NextRequest) {
   try {
-    const { text } = await request.json()
+    let payload: unknown
+    try {
+      payload = await request.json()
+    } catch {
+      return NextResponse.json(
+        { error: 'Request body must be JSON with a text field.' },
+        { status: 400 }
+      )
+    }
+
+    const text = typeof payload === 'object' && payload !== null && 'text' in payload
+      ? (payload as { text?: unknown }).text
+      : undefined
     const warnings: string[] = []
 
     if (!text || typeof text !== 'string') {
@@ -75,14 +86,9 @@ export async function POST(request: NextRequest) {
       warnings.push('Academic database search was unavailable for this request.')
     }
     
-    const normalizedPapers = relatedPapers.map((paper) => ({
-      ...paper,
-      abstract: paper.abstract?.trim() ? paper.abstract : 'No abstract available.'
-    }))
-
-    if (normalizedPapers.some((paper) => MISSING_ABSTRACT_PATTERN.test(paper.abstract))) {
-      warnings.push('Some sources do not provide abstracts, so those matches were ranked using titles and available metadata only.')
-    }
+    const normalizedPapers = normalizeRelatedPapers(relatedPapers)
+    const abstractWarning = missingAbstractWarning(normalizedPapers)
+    if (abstractWarning) warnings.push(abstractWarning)
 
     return NextResponse.json({
       citations: allCitations,
@@ -96,10 +102,9 @@ export async function POST(request: NextRequest) {
       warnings
     })
 
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+  } catch {
     return NextResponse.json(
-      { error: `Failed to process text: ${errorMessage}. Please check your input and try again.` },
+      { error: 'Failed to process text. Please check your input and try again.' },
       { status: 500 }
     )
   }

@@ -3,8 +3,7 @@
 import { useState } from 'react'
 import { Download, FileText, Copy, Check, BookOpen } from 'lucide-react'
 import { Citation, RelatedPaper } from '@/types'
-
-type ReferenceFormat = 'apa' | 'mla' | 'chicago' | 'harvard' | 'bibtex'
+import { formatInTextCitation, formatReferenceList, type ReferenceFormat } from '@/lib/references'
 
 interface ReferencesGeneratorProps {
   citations: Citation[]
@@ -19,70 +18,12 @@ const FORMAT_OPTIONS = [
   { value: 'bibtex', label: 'BibTeX', description: 'LaTeX Bibliography Format' }
 ] as const
 
-export default function ReferencesGenerator({ citations, selectedPapers = [] }: ReferencesGeneratorProps) {
+export default function ReferencesGenerator({ selectedPapers = [] }: ReferencesGeneratorProps) {
   const [selectedFormat, setSelectedFormat] = useState<ReferenceFormat>('apa')
   const [copied, setCopied] = useState(false)
 
-  const formatPaper = (paper: RelatedPaper, format: ReferenceFormat): string => {
-    const authors = paper.authors.join(', ')
-    const title = paper.title
-    const year = paper.year
-
-    switch (format) {
-      case 'apa':
-        return `${authors}. (${year}). ${title}.`
-      case 'mla':
-        return `${authors}. "${title}." ${year}.`
-      case 'chicago':
-        return `${authors}. "${title}." ${year}.`
-      case 'harvard':
-        return `${authors} (${year}) ${title}.`
-      case 'bibtex':
-        return `@article{${paper.id},\n  author = {${authors}},\n  title = {${title}},\n  year = {${year}},\n}`
-      default:
-        return `${authors}. (${year}). ${title}.`
-    }
-  }
-
   const generateAllReferences = (format: ReferenceFormat): string => {
-    if (selectedPapers.length === 0) {
-      return 'No papers selected. Please select papers from the Related Papers section above.'
-    }
-    
-    if (selectedPapers.length === 1) {
-      return formatPaper(selectedPapers[0], format)
-    }
-    
-    return selectedPapers
-      .map((paper, index) => `${index + 1}. ${formatPaper(paper, format)}`)
-      .join('\n\n')
-  }
-
-  const getPrimaryAuthorLastName = (authors: string[]): string => {
-    if (!authors || authors.length === 0) return 'Author'
-    const first = authors[0]
-    const parts = first.split(' ').filter(Boolean)
-    return parts.length ? parts[parts.length - 1] : first
-  }
-
-  const formatInTextCitation = (paper: RelatedPaper, format: ReferenceFormat): string => {
-    const primaryLast = getPrimaryAuthorLastName(paper.authors)
-    const year = paper.year || 'n.d.'
-    
-    switch (format) {
-      case 'apa':
-        return `(${primaryLast}, ${year})`
-      case 'mla':
-        return `(${primaryLast})`
-      case 'chicago':
-        return `(${primaryLast} ${year})`
-      case 'harvard':
-        return `(${primaryLast}, ${year})`
-      case 'bibtex':
-        return `\\cite{${paper.id}}`
-      default:
-        return `(${primaryLast}, ${year})`
-    }
+    return formatReferenceList(selectedPapers, format)
   }
 
   const copyToClipboard = async () => {
@@ -102,7 +43,7 @@ export default function ReferencesGenerator({ citations, selectedPapers = [] }: 
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `references-${selectedFormat}.txt`
+    a.download = selectedFormat === 'bibtex' ? 'references.bib' : `references-${selectedFormat}.txt`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
