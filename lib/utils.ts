@@ -18,6 +18,57 @@ const NAMED_XML_ENTITIES: Record<string, string> = {
   nbsp: ' ',
 }
 
+const PLACEHOLDER_ABSTRACT = /no abstract available/i
+
+/**
+ * Academic APIs use this sentence when they have no abstract.
+ * It must not count as matching text.
+ */
+export function hasUsableAbstract(abstract: string | null | undefined): boolean {
+  const trimmed = abstract?.trim() ?? ''
+  return trimmed.length > 0 && !PLACEHOLDER_ABSTRACT.test(trimmed)
+}
+
+/**
+ * Accept only absolute http(s) URLs. API metadata is untrusted.
+ */
+export function isHttpUrl(url: string | null | undefined): url is string {
+  if (!url) return false
+
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Run async work with a concurrency cap while keeping result order.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return []
+
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const workers = Math.max(1, Math.min(concurrency, items.length))
+
+  async function worker(): Promise<void> {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await mapper(items[index], index)
+    }
+  }
+
+  await Promise.all(Array.from({ length: workers }, () => worker()))
+  return results
+}
+
 /**
  * Enforce a timeout on any async operation
  */
@@ -233,8 +284,11 @@ export function toDoiUrl(doi: string | null | undefined): string | undefined {
   trimmed = trimmed.replace(/^doi:\s*/i, '')
 
   if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed.replace(/^http:\/\//i, 'https://')
+    const upgraded = trimmed.replace(/^http:\/\//i, 'https://')
+    return isHttpUrl(upgraded) ? upgraded : undefined
   }
+
+  if (!/^10\.\d{4,}\/\S+$/i.test(trimmed)) return undefined
 
   return `https://doi.org/${trimmed.replace(/^\/+/, '')}`
 }
@@ -248,11 +302,20 @@ export function resolveExternalUrl(options: {
   landingPageUrl?: string | null
   fallbackId?: string | null
 }): string {
-  return toDoiUrl(options.doi)
-    || options.oaUrl
-    || options.landingPageUrl
-    || options.fallbackId
-    || '#'
+  const candidates = [
+    toDoiUrl(options.doi),
+    options.oaUrl,
+    options.landingPageUrl,
+    options.fallbackId,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && isHttpUrl(candidate.trim())) {
+      return candidate.trim()
+    }
+  }
+
+  return '#'
 }
 
 /**
@@ -263,20 +326,23 @@ export function cleanExternalText(value: string): string {
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
     .replace(/<[^>]+>/g, ' ')
 
+  const decodeCodePoint = (entity: string, point: number): string => {
+    const valid = Number.isInteger(point)
+      && point >= 0
+      && point <= 0x10FFFF
+      && !(point >= 0xD800 && point <= 0xDFFF)
+
+    return valid ? String.fromCodePoint(point) : entity
+  }
+
   const decoded = withoutMarkup
-    .replace(/&#(\d+);/g, (entity, code: string) => {
-      const point = Number(code)
-      return Number.isFinite(point) ? String.fromCodePoint(point) : entity
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (entity, hex: string) => {
-      const point = Number.parseInt(hex, 16)
-      return Number.isFinite(point) ? String.fromCodePoint(point) : entity
-    })
+    .replace(/&#(\d+);/g, (entity, code: string) => decodeCodePoint(entity, Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (entity, hex: string) => decodeCodePoint(entity, Number.parseInt(hex, 16)))
     .replace(/&([a-z]+);/gi, (entity, name: string) => NAMED_XML_ENTITIES[name.toLowerCase()] ?? entity)
 
   return decoded.replace(/\s+/g, ' ').trim()
 }
 
 export function isLinkableUrl(url: string | undefined): url is string {
-  return Boolean(url && url !== '#' && !url.startsWith('about:'))
+  return isHttpUrl(url)
 }

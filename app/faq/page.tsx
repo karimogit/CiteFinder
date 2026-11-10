@@ -26,7 +26,7 @@ const FAQ_CATEGORIES: FAQCategory[] = [
       },
       {
         question: "What file formats are supported?",
-        answer: "Currently, CiteFinder supports PDF files only. We recommend using text-based PDFs for best results, though we can also process scanned documents with varying success rates."
+        answer: "You can upload a text-based PDF or paste text directly. Image-only scanned PDFs cannot be read, because CiteFinder does not run optical character recognition. Password-protected PDFs need to be unlocked first."
       },
       {
         question: "Is there a file size limit?",
@@ -88,11 +88,11 @@ const FAQ_CATEGORIES: FAQCategory[] = [
       },
       {
         question: "What data do you collect?",
-        answer: "We collect minimal data for service improvement, including usage statistics and error reports. We do not collect personal information or document content. See our Privacy Policy for full details."
+        answer: "We do not require an account and we do not store your document. Short search phrases from the text are sent to academic databases. The hosting provider may keep standard request logs. See our Privacy Policy for full details."
       },
       {
         question: "Is my research data secure?",
-        answer: "Yes, your research data is secure. We use industry-standard encryption for data transmission, and all processing is done in secure, isolated environments. Your documents are never shared with third parties."
+        answer: "The document itself is processed in memory and is not saved or sent to academic databases. Search phrases from the text are sent to arXiv, OpenAlex, Crossref, and PubMed so CiteFinder can find sources."
       }
     ]
   },
@@ -218,7 +218,9 @@ export default function FAQPage() {
 
                   return (
                     <div key={itemIndex} className="border border-gray-200 rounded-lg overflow-hidden">
-                      <button
+                        <button
+                        id={`faq-question-${itemKey}`}
+                        type="button"
                         onClick={() => toggleItem(itemKey)}
                         className="w-full px-6 py-4 text-left bg-white/50 hover:bg-white/70 transition-colors flex items-center justify-between focus:ring-2 focus:ring-blue-500 focus:outline-none"
                         aria-expanded={isOpen}

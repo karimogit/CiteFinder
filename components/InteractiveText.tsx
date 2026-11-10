@@ -2,6 +2,7 @@
 
 import { ExternalLink } from 'lucide-react'
 import { RelatedPaper, StatementWithPosition } from '@/types'
+import { SIMILARITY_THRESHOLDS } from '@/lib/constants'
 import { isLinkableUrl } from '@/lib/utils'
 
 interface InteractiveTextProps {
@@ -24,7 +25,9 @@ export default function InteractiveText({
   return (
     <div className="max-h-[28rem] space-y-5 overflow-y-auto pr-1">
       {sortedStatements.map((statement, index) => {
-        const supportingPapers = relatedPapers.filter(paper => paper.statement === statement.text)
+        const supportingPapers = relatedPapers.filter(
+          paper => paper.statement === statement.text && paper.similarity >= SIMILARITY_THRESHOLDS.MIN_DISPLAY
+        )
         const topPapers = supportingPapers.slice(0, 3)
 
         return (

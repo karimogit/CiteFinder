@@ -7,6 +7,7 @@ export const CONTEXT_RADIUS = 200
 export const MIN_STATEMENT_LENGTH = 20
 export const MAX_STATEMENT_LENGTH = 500
 export const MIN_WORD_COUNT = 4
+export const MAX_TEXT_INPUT_CHARS = 200_000
 
 // API timeouts (in milliseconds)
 export const API_TIMEOUT = {
@@ -27,6 +28,9 @@ export const API_RESULT_LIMITS = {
   PUBMED: 5,
   MAX_PAPERS_TOTAL: 8,
   MAX_PAPERS_PER_CITATION: 6,
+  MAX_STATEMENTS_SEARCHED: 10,
+  MAX_EXISTING_CITATIONS_SEARCHED: 6,
+  SEARCH_CONCURRENCY: 3,
 } as const
 
 // Similarity thresholds

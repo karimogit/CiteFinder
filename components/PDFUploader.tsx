@@ -3,6 +3,7 @@
 import { useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText } from 'lucide-react'
+import { FILE_LIMITS } from '@/lib/constants'
 
 interface PDFUploaderProps {
   onFileUpload: (file: File) => void
@@ -13,11 +14,17 @@ export default function PDFUploader({ onFileUpload, onError }: PDFUploaderProps)
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       const file = acceptedFiles[0]
-      if (!file.type || file.type === 'application/pdf') {
-        onFileUpload(file)
-      } else {
+      if (file.type && file.type !== 'application/pdf') {
         onError?.('Please upload a PDF file')
+        return
       }
+
+      if (file.size > FILE_LIMITS.MAX_SIZE_BYTES) {
+        onError?.(`File size too large. Please upload a PDF smaller than ${FILE_LIMITS.MAX_SIZE_MB}MB.`)
+        return
+      }
+
+      onFileUpload(file)
     }
   }, [onError, onFileUpload])
 

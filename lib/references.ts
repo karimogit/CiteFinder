@@ -94,7 +94,7 @@ export function formatReference(paper: RelatedPaper, format: ReferenceFormat): s
         `  title = {${escapeBibtex(title)}},`,
         `  year = {${year}},`
       ]
-      if (url) lines.push(`  url = {${url}},`)
+      if (url) lines.push(`  url = {${escapeBibtex(url)}},`)
       lines.push('}')
       return lines.join('\n')
     }
@@ -103,20 +103,30 @@ export function formatReference(paper: RelatedPaper, format: ReferenceFormat): s
   }
 }
 
+function referenceIdentity(paper: RelatedPaper): string {
+  const url = sourceUrl(paper)?.replace(/\/+$/, '').toLowerCase() || ''
+  return `${paper.title.trim().toLowerCase()}|${citationYear(paper.year)}|${url}`
+}
+
 export function formatReferenceList(papers: RelatedPaper[], format: ReferenceFormat): string {
-  if (papers.length === 0) {
+  const uniquePapers = papers.filter((paper, index) => {
+    const identity = referenceIdentity(paper)
+    return papers.findIndex((candidate) => referenceIdentity(candidate) === identity) === index
+  })
+
+  if (uniquePapers.length === 0) {
     return 'No papers selected. Please select papers from the Related Papers section above.'
   }
 
   if (format === 'bibtex') {
-    return papers.map((paper) => formatReference(paper, format)).join('\n\n')
+    return uniquePapers.map((paper) => formatReference(paper, format)).join('\n\n')
   }
 
-  if (papers.length === 1) {
-    return formatReference(papers[0], format)
+  if (uniquePapers.length === 1) {
+    return formatReference(uniquePapers[0], format)
   }
 
-  return papers
+  return uniquePapers
     .map((paper, index) => `${index + 1}. ${formatReference(paper, format)}`)
     .join('\n\n')
 }

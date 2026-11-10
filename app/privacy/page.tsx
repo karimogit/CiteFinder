@@ -36,7 +36,7 @@ export default function PrivacyPage() {
             Your privacy is important to us. This policy explains how we collect, use, and protect your information.
           </p>
           <div className="text-sm text-gray-500 mt-4">
-            Last updated: {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+            Last updated: November 10, 2026
           </div>
         </header>
 
@@ -55,21 +55,21 @@ export default function PrivacyPage() {
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">PDF Files</h3>
                 <p className="text-gray-700 leading-relaxed">
-                  When you upload PDF files to CiteFinder, we store them securely in Vercel Blob storage. We process these files to extract citations and provide you with related academic papers. Your PDFs are processed locally and stored securely for your convenience.
+                  When you upload a PDF, CiteFinder reads it in memory to extract statements and search for sources. The file is not written to a database or file store, and it is discarded when the request finishes.
                 </p>
               </div>
               
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">Text Input</h3>
                 <p className="text-gray-700 leading-relaxed">
-                  If you choose to enter text directly, we process this text to extract citations and find related papers. This text is not permanently stored and is only used for the duration of your session.
+                  Text you paste is processed the same way. It is used to extract statements and is not saved after the request finishes.
                 </p>
               </div>
               
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">Usage Data</h3>
                 <p className="text-gray-700 leading-relaxed">
-                  We collect anonymous usage statistics to improve our service, including the number of citations extracted, papers found, and general usage patterns. This data does not contain any personal information.
+                  CiteFinder does not require an account and does not run its own analytics. The hosting provider may keep standard server logs, such as IP address and request time, for a limited period.
                 </p>
               </div>
             </div>
@@ -119,16 +119,16 @@ export default function PrivacyPage() {
             
             <div className="space-y-6">
               <div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-3">Secure Storage</h3>
+                <h3 className="text-xl font-semibold text-gray-900 mb-3">No document retention</h3>
                 <p className="text-gray-700 leading-relaxed">
-                  Your PDF files are stored securely using Vercel Blob storage with industry-standard encryption. We implement appropriate technical and organizational measures to protect your data against unauthorized access, alteration, disclosure, or destruction.
+                  Uploaded PDFs and pasted text are processed in memory for that request and are not stored by CiteFinder. Do not submit information you are not comfortable sending as a search query.
                 </p>
               </div>
               
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">Data Processing</h3>
                 <p className="text-gray-700 leading-relaxed">
-                  All data processing is performed securely on our servers. We do not share your uploaded files or extracted citations with third parties unless required by law or with your explicit consent.
+                  Processing runs on our servers. To find sources, short search phrases from your text are sent to arXiv, OpenAlex, Crossref, and PubMed. The original file is not sent to those services.
                 </p>
               </div>
               
@@ -154,7 +154,7 @@ export default function PrivacyPage() {
                 <ul className="mt-3 space-y-2">
                   <li className="flex items-start">
                     <div className="w-2 h-2 bg-gray-400 rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                    <span className="text-gray-700"><strong>Vercel Blob Storage:</strong> For secure file storage</span>
+                    <span className="text-gray-700"><strong>Hosting provider:</strong> Runs the application and may retain standard request logs. Documents are not stored there.</span>
                   </li>
                   <li className="flex items-start">
                     <div className="w-2 h-2 bg-gray-400 rounded-full mt-2 mr-3 flex-shrink-0"></div>
@@ -180,44 +180,21 @@ export default function PrivacyPage() {
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">What Are Cookies?</h3>
                 <p className="text-gray-700 leading-relaxed">
-                  Cookies are small text files that are placed on your device when you visit our website. They help us provide you with a better experience and understand how you use our service.
+                  Cookies are small text files that a site can store on your device. CiteFinder&apos;s search flow does not use them.
                 </p>
               </div>
               
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">How We Use Cookies</h3>
                 <p className="text-gray-700 leading-relaxed mb-4">
-                  We use cookies for the following purposes:
+                  CiteFinder does not set analytics, advertising, or preference cookies. The app works without an account cookie.
                 </p>
-                <div className="space-y-3">
-                  <div className="flex items-start">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                    <div>
-                      <p className="text-gray-700 font-medium">Essential Cookies</p>
-                      <p className="text-gray-600 text-sm">Required for the website to function properly, including session management and security features</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                    <div>
-                      <p className="text-gray-700 font-medium">Analytics Cookies</p>
-                      <p className="text-gray-600 text-sm">Help us understand how visitors interact with our website to improve user experience</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                    <div>
-                      <p className="text-gray-700 font-medium">Performance Cookies</p>
-                      <p className="text-gray-600 text-sm">Monitor website performance and help us optimize loading times</p>
-                    </div>
-                  </div>
-                </div>
               </div>
               
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">Third-Party Cookies</h3>
                 <p className="text-gray-700 leading-relaxed">
-                  We may use third-party services that set their own cookies. These services include analytics providers and content delivery networks. These cookies are subject to the respective privacy policies of these third-party services.
+                  CiteFinder does not embed third-party analytics. Academic databases are contacted from our server, so your browser does not receive their cookies during a search.
                 </p>
               </div>
               
@@ -238,7 +215,7 @@ export default function PrivacyPage() {
 
                 </div>
                 <p className="text-gray-700 leading-relaxed mt-4">
-                  Please note that disabling certain cookies may affect the functionality of our website.
+                  Blocking cookies in your browser will not stop CiteFinder from processing a document.
                 </p>
               </div>
             </div>
@@ -255,7 +232,7 @@ export default function PrivacyPage() {
               </div>
               <div className="flex items-start">
                 <div className="w-2 h-2 bg-green-500 rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                <p className="text-gray-700"><strong>Deletion:</strong> You can request deletion of your uploaded files and associated data</p>
+                <p className="text-gray-700"><strong>Deletion:</strong> Uploaded documents are not retained, so there is no document library to delete. You can still ask us about hosting logs.</p>
               </div>
               <div className="flex items-start">
                 <div className="w-2 h-2 bg-green-500 rounded-full mt-2 mr-3 flex-shrink-0"></div>

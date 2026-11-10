@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { FileText, Loader2, ChevronDown, ChevronUp, BookOpen, AlertTriangle, ArrowLeft } from 'lucide-react'
 import PDFUploader from '@/components/PDFUploader'
 import RelatedPapers from '@/components/RelatedPapers'
@@ -8,7 +8,7 @@ import InteractiveText from '@/components/InteractiveText'
 import ReferencesGenerator from '@/components/ReferencesGenerator'
 import { useToast } from '@/components/ui/Toast'
 import { RelatedPaper, Citation, StatementWithPosition, ProcessResponse } from '@/types'
-import { SIMILARITY_THRESHOLDS } from '@/lib/constants'
+import { MAX_TEXT_INPUT_CHARS, SIMILARITY_THRESHOLDS } from '@/lib/constants'
 
 type FaqItem = {
   question: string
@@ -41,7 +41,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'Is my data secure?',
     answer:
-      'Yes! We never store your PDF files or text content. All processing happens temporarily, and your documents are deleted immediately after processing. Your research data remains private and secure.',
+      'Your file is processed in memory and is not saved. Search phrases from the text are sent to academic databases to find sources, and the document itself is discarded when processing finishes.',
   },
 ]
 
@@ -58,10 +58,44 @@ export default function Home() {
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null)
   const [searchText, setSearchText] = useState<string>('')
   const [searchMode, setSearchMode] = useState<'pdf' | 'text'>('pdf')
+  const requestGeneration = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
 
-  const handleFileUpload = async (file: File) => {
+  const startRequest = () => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    const requestId = ++requestGeneration.current
     setIsProcessing(true)
     setCurrentStep('processing')
+    setSelectedPapers([])
+    setWarnings([])
+    return { requestId, signal: controller.signal }
+  }
+
+  const isCurrentRequest = (requestId: number) => requestId === requestGeneration.current
+
+  const applyResult = (requestId: number, data: ProcessResponse, successMessage: string) => {
+    if (!isCurrentRequest(requestId)) return
+    setCitations(data.citations || [])
+    setRelatedPapers(data.relatedPapers || [])
+    setStatementsFound(data.statementsFound || [])
+    setStatementsWithPositions(data.statementsWithPositions || [])
+    setWarnings(data.warnings || [])
+    setCurrentStep('results')
+    showToast(successMessage, 'success')
+  }
+
+  const failRequest = (requestId: number, error: unknown, label: string) => {
+    if (!isCurrentRequest(requestId)) return
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+    showToast(`Error processing ${label}: ${errorMessage}`, 'error')
+    setCurrentStep('upload')
+  }
+
+  const handleFileUpload = async (file: File) => {
+    const { requestId, signal } = startRequest()
     
     try {
       const formData = new FormData()
@@ -70,6 +104,7 @@ export default function Home() {
       const response = await fetch('/api/process-pdf', {
         method: 'POST',
         body: formData,
+        signal,
       })
 
       if (!response.ok) {
@@ -78,19 +113,11 @@ export default function Home() {
       }
 
       const data: ProcessResponse = await response.json()
-      setCitations(data.citations)
-      setRelatedPapers(data.relatedPapers)
-      setStatementsFound(data.statementsFound || [])
-      setStatementsWithPositions(data.statementsWithPositions || [])
-      setWarnings(data.warnings || [])
-      setCurrentStep('results')
-      showToast('PDF processed successfully!', 'success')
+      applyResult(requestId, data, 'PDF processed successfully!')
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-      showToast(`Error processing PDF: ${errorMessage}`, 'error')
-      setCurrentStep('upload')
+      failRequest(requestId, error, 'PDF')
     } finally {
-      setIsProcessing(false)
+      if (isCurrentRequest(requestId)) setIsProcessing(false)
     }
   }
 
@@ -100,20 +127,25 @@ export default function Home() {
 
   const handlePaperSelection = (paper: RelatedPaper, isSelected: boolean) => {
     if (isSelected) {
-      setSelectedPapers(prev => [...prev, paper])
+      setSelectedPapers(prev => prev.some(item => item.id === paper.id) ? prev : [...prev, paper])
     } else {
       setSelectedPapers(prev => prev.filter(p => p.id !== paper.id))
     }
   }
 
   const handleTextSearch = async () => {
-    if (!searchText.trim()) {
+    const trimmed = searchText.trim()
+    if (!trimmed) {
       showToast('Please enter some text to analyze', 'warning')
       return
     }
+
+    if (trimmed.length > MAX_TEXT_INPUT_CHARS) {
+      showToast(`Text is too long. Please provide ${MAX_TEXT_INPUT_CHARS.toLocaleString()} characters or less.`, 'warning')
+      return
+    }
     
-    setIsProcessing(true)
-    setCurrentStep('processing')
+    const { requestId, signal } = startRequest()
     
     try {
       const response = await fetch('/api/process-text', {
@@ -121,7 +153,8 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: searchText }),
+        body: JSON.stringify({ text: trimmed }),
+        signal,
       })
 
       if (!response.ok) {
@@ -130,20 +163,11 @@ export default function Home() {
       }
 
       const data: ProcessResponse = await response.json()
-      
-      setCitations(data.citations || [])
-      setRelatedPapers(data.relatedPapers || [])
-      setStatementsFound(data.statementsFound || [])
-      setStatementsWithPositions(data.statementsWithPositions || [])
-      setWarnings(data.warnings || [])
-      setCurrentStep('results')
-      showToast('Text analyzed successfully!', 'success')
+      applyResult(requestId, data, 'Text analyzed successfully!')
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-      showToast(`Error processing text: ${errorMessage}`, 'error')
-      setCurrentStep('upload')
+      failRequest(requestId, error, 'text')
     } finally {
-      setIsProcessing(false)
+      if (isCurrentRequest(requestId)) setIsProcessing(false)
     }
   }
 
@@ -152,6 +176,10 @@ export default function Home() {
   ).length
 
   const handleBackToUpload = () => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    requestGeneration.current += 1
+    setIsProcessing(false)
     setCurrentStep('upload')
     setSelectedPapers([])
     setWarnings([])
@@ -276,8 +304,12 @@ export default function Home() {
                       value={searchText}
                       onChange={(e) => setSearchText(e.target.value)}
                       placeholder="Paste your paper content here..."
+                      maxLength={MAX_TEXT_INPUT_CHARS}
                       className="h-40 w-full resize-none rounded-xl border border-ink/10 bg-surface p-4 text-ink placeholder:text-ink-muted/50 focus:border-teal focus:ring-2 focus:ring-teal/30 sm:h-48"
                     />
+                    <p className="text-right text-xs text-ink-muted">
+                      {searchText.length.toLocaleString()} / {MAX_TEXT_INPUT_CHARS.toLocaleString()}
+                    </p>
                     <button
                       onClick={handleTextSearch}
                       disabled={!searchText.trim() || isProcessing}

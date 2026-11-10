@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, createContext, useContext, useCallback } from 'react'
+import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react'
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react'
 
 type ToastType = 'success' | 'error' | 'info' | 'warning'
@@ -27,14 +27,30 @@ export function useToast() {
   return context
 }
 
+const style = `
+  @keyframes fadeOut {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(10px); }
+  }
+  .animate-fade-out {
+    animation: fadeOut 0.2s ease-out forwards;
+  }
+`
+
 interface ToastProviderProps {
   children: React.ReactNode
 }
 
 export function ToastProvider({ children }: ToastProviderProps) {
   const [toasts, setToasts] = useState<Toast[]>([])
+  const timers = useRef<Map<string, number>>(new Map())
 
   const hideToast = useCallback((id: string) => {
+    const timer = timers.current.get(id)
+    if (timer !== undefined) {
+      window.clearTimeout(timer)
+      timers.current.delete(id)
+    }
     setToasts(prev => prev.filter(toast => toast.id !== id))
   }, [])
 
@@ -43,15 +59,30 @@ export function ToastProvider({ children }: ToastProviderProps) {
     type: ToastType = 'info', 
     duration: number = 5000
   ) => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
     const newToast: Toast = { id, message, type, duration }
     
     setToasts(prev => [...prev, newToast])
 
     if (duration > 0) {
-      setTimeout(() => hideToast(id), duration)
+      const timer = window.setTimeout(() => hideToast(id), duration)
+      timers.current.set(id, timer)
     }
   }, [hideToast])
+
+  useEffect(() => {
+    const styleElement = document.createElement('style')
+    styleElement.setAttribute('data-citefinder-toast', 'true')
+    styleElement.textContent = style
+    document.head.appendChild(styleElement)
+    const pending = timers.current
+
+    return () => {
+      styleElement.remove()
+      pending.forEach((timer) => window.clearTimeout(timer))
+      pending.clear()
+    }
+  }, [])
 
   return (
     <ToastContext.Provider value={{ showToast, hideToast }}>
@@ -139,21 +170,4 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
       </button>
     </div>
   )
-}
-
-// Add animation styles
-const style = `
-  @keyframes fadeOut {
-    from { opacity: 1; transform: translateY(0); }
-    to { opacity: 0; transform: translateY(10px); }
-  }
-  .animate-fade-out {
-    animation: fadeOut 0.2s ease-out forwards;
-  }
-`
-
-if (typeof document !== 'undefined') {
-  const styleElement = document.createElement('style')
-  styleElement.textContent = style
-  document.head.appendChild(styleElement)
 }

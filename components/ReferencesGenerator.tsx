@@ -111,7 +111,7 @@ export default function ReferencesGenerator({ selectedPapers = [] }: ReferencesG
                   }, {} as Record<string, RelatedPaper[]>)
 
                 return Object.entries(papersByStatement).map(([statement, papers]) => (
-                  <div key={statement.slice(0, 30)} className="flex items-start justify-between">
+                  <div key={statement} className="flex items-start justify-between">
                     <div className="flex-1 mr-4">
                       <p className="text-sm text-gray-800 mb-1">{statement}</p>
                       <p className="text-sm text-gray-600">

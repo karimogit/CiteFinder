@@ -36,7 +36,7 @@ export default function TermsPage() {
             Please read these terms carefully before using CiteFinder. By using our service, you agree to these terms.
           </p>
           <div className="text-sm text-gray-500 mt-4">
-            Last updated: {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+            Last updated: November 10, 2026
           </div>
         </header>
 
@@ -80,7 +80,7 @@ export default function TermsPage() {
                 </div>
                 <div className="flex items-start">
                   <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                  <p className="text-gray-700">Secure storage and processing of uploaded documents</p>
+                  <p className="text-gray-700">In-memory processing of PDFs and pasted text, without retaining the document</p>
                 </div>
               </div>
             </div>
@@ -119,7 +119,7 @@ export default function TermsPage() {
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">Content Ownership</h3>
                 <p className="text-gray-700 leading-relaxed">
-                  You retain ownership of any content you upload to the Service. By uploading content, you grant us a limited license to process and store your content solely for the purpose of providing the Service to you.
+                  You retain ownership of content you submit. You grant us a limited license to process that content for the duration of the request so we can provide the Service. We do not store the document after processing.
                 </p>
               </div>
             </div>

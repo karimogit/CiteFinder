@@ -53,7 +53,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               We encountered an unexpected error. Please try again or refresh the page.
             </p>
             
-            {this.state.error && (
+            {process.env.NODE_ENV !== 'production' && this.state.error && (
               <details className="mb-6 text-left">
                 <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-700">
                   Error details

@@ -74,7 +74,7 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-900">GitHub</h3>
-                    <p className="text-gray-600">github.com/citefinder</p>
+                    <p className="text-gray-600">github.com/karimogit/CiteFinder</p>
                     <p className="text-sm text-gray-500">Open source contributions welcome</p>
                   </div>
                 </div>
@@ -109,7 +109,7 @@ export default function ContactPage() {
                 </a>
                 
                 <a 
-                  href="https://github.com/citefinder" 
+                  href="https://github.com/karimogit/CiteFinder" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center hover:bg-gray-200 transition-colors"

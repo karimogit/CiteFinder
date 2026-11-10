@@ -21,9 +21,16 @@ function rememberEmbedding(key: string, value: Promise<number[]>): void {
 
 async function loadEmbeddingPipeline(): Promise<FeatureExtractionPipeline> {
   if (!embeddingPipelinePromise) {
-    embeddingPipelinePromise = pipeline('feature-extraction', 'sentence-transformers/all-MiniLM-L6-v2', {
+    const pending = pipeline('feature-extraction', 'sentence-transformers/all-MiniLM-L6-v2', {
       quantized: true
     }) as Promise<FeatureExtractionPipeline>
+
+    embeddingPipelinePromise = pending
+    pending.catch(() => {
+      if (embeddingPipelinePromise === pending) {
+        embeddingPipelinePromise = null
+      }
+    })
   }
 
   return embeddingPipelinePromise

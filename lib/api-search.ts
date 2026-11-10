@@ -15,7 +15,10 @@ import {
   generateId,
   cleanExternalText,
   resolveExternalUrl,
-  toDoiUrl
+  toDoiUrl,
+  hasUsableAbstract,
+  isHttpUrl,
+  mapWithConcurrency
 } from './utils'
 import { embedText, cosineSimilarity } from './embeddings'
 
@@ -128,7 +131,7 @@ export async function searchArxiv(searchQuery: string): Promise<RelatedPaper[]> 
     const searchQueries = buildArxivQueries(searchQuery)
     
     for (const query of searchQueries) {
-      const response = await axios.get('http://export.arxiv.org/api/query', {
+      const response = await axios.get('https://export.arxiv.org/api/query', {
         params: {
           search_query: query,
           start: 0,
@@ -158,7 +161,8 @@ export async function searchArxiv(searchQuery: string): Promise<RelatedPaper[]> 
             for (const authorMatch of authorMatches) {
               const nameMatch = authorMatch.match(/<name>([\s\S]*?)<\/name>/)
               if (nameMatch) {
-                authors.push(nameMatch[1].trim())
+                const name = cleanExternalText(nameMatch[1])
+                if (name) authors.push(name)
               }
             }
           }
@@ -206,9 +210,13 @@ export async function searchOpenAlex(query: string): Promise<RelatedPaper[]> {
         per_page: API_RESULT_LIMITS.OPENALEX,
         sort: 'relevance_score:desc',
         filter: 'type:article,publication_year:>2000',
-        select: 'id,title,authorships,publication_year,abstract_inverted_index,doi,open_access,primary_location'
+        select: 'id,title,authorships,publication_year,abstract_inverted_index,doi,open_access,primary_location',
+        mailto: 'support@citefinder.app'
       },
-      timeout: API_TIMEOUT.OPENALEX
+      timeout: API_TIMEOUT.OPENALEX,
+      headers: {
+        'User-Agent': 'CiteFinder/1.0 (https://citefinder.app; mailto:support@citefinder.app)'
+      }
     })
 
     const papers: RelatedPaper[] = []
@@ -250,7 +258,7 @@ export async function searchOpenAlex(query: string): Promise<RelatedPaper[]> {
 
       papers.push({
         id: generateId('openalex'),
-        title: work.title || 'Untitled',
+        title: cleanExternalText(String(work.title || '')) || 'Untitled',
         authors: authors.length > 0 ? authors : ['Unknown Author'],
         year,
         abstract,
@@ -341,7 +349,9 @@ export async function searchPubMed(query: string): Promise<RelatedPaper[]> {
         term: query,
         retmode: 'json',
         retmax: API_RESULT_LIMITS.PUBMED,
-        sort: 'relevance'
+        sort: 'relevance',
+        tool: 'citefinder',
+        email: 'support@citefinder.app'
       },
       timeout: API_TIMEOUT.PUBMED
     })
@@ -351,12 +361,14 @@ export async function searchPubMed(query: string): Promise<RelatedPaper[]> {
 
     if (idList.length > 0) {
       const ids = idList.join(',')
-      const [detailResponse, fetchResponse] = await Promise.all([
+      const [detailResult, fetchResult] = await Promise.allSettled([
         axios.get('https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi', {
           params: {
             db: 'pubmed',
             id: ids,
-            retmode: 'json'
+            retmode: 'json',
+            tool: 'citefinder',
+            email: 'support@citefinder.app'
           },
           timeout: API_TIMEOUT.PUBMED
         }),
@@ -364,18 +376,27 @@ export async function searchPubMed(query: string): Promise<RelatedPaper[]> {
           params: {
             db: 'pubmed',
             id: ids,
-            retmode: 'xml'
+            retmode: 'xml',
+            tool: 'citefinder',
+            email: 'support@citefinder.app'
           },
           timeout: API_TIMEOUT.PUBMED
         })
       ])
 
-      const summaries = detailResponse.data.result || {}
-      const articleXmlMatches = [...String(fetchResponse.data).matchAll(/<PubmedArticle>[\s\S]*?<PMID[^>]*>(\d+)<\/PMID>[\s\S]*?<\/PubmedArticle>/g)]
+      if (detailResult.status !== 'fulfilled') {
+        throw detailResult.reason
+      }
+
+      const summaries = detailResult.value.data.result || {}
       const abstractById = new Map<string, string>()
 
-      for (const match of articleXmlMatches) {
-        abstractById.set(match[1], extractPubMedAbstract(match[0]))
+      if (fetchResult.status === 'fulfilled') {
+        const articleXmlMatches = [...String(fetchResult.value.data).matchAll(/<PubmedArticle>[\s\S]*?<PMID[^>]*>(\d+)<\/PMID>[\s\S]*?<\/PubmedArticle>/g)]
+
+        for (const match of articleXmlMatches) {
+          abstractById.set(match[1], extractPubMedAbstract(match[0]))
+        }
       }
 
       for (const id of idList) {
@@ -414,7 +435,7 @@ export async function searchPubMed(query: string): Promise<RelatedPaper[]> {
 export function calculateLexicalSimilarity(searchQuery: string, paper: RelatedPaper): number {
   const query = searchQuery.toLowerCase()
   const title = paper.title.toLowerCase()
-  const abstract = paper.abstract.toLowerCase()
+  const abstract = hasUsableAbstract(paper.abstract) ? paper.abstract.toLowerCase() : ''
   
   const queryWords = query.split(/\s+/).filter(word => word.length > 2)
   const titleWords = title.split(/\s+/).filter(word => word.length > 2)
@@ -465,7 +486,7 @@ export async function getSemanticSimilarity(text: string, paper: RelatedPaper): 
 
   try {
     const abstractText = (paper.abstract || '').trim()
-    const useTitleOnly = abstractText.length < 40 || /no abstract available/i.test(abstractText)
+    const useTitleOnly = abstractText.length < 40 || !hasUsableAbstract(abstractText)
     const paperText = useTitleOnly ? paper.title : `${paper.title}. ${abstractText}`
 
     const [textEmbedding, paperEmbedding] = await Promise.all([
@@ -499,7 +520,8 @@ export async function calculateSimilarityScore(searchQuery: string, paper: Relat
 export function calculateStatementOverlapScore(statement: string, paper: RelatedPaper): number {
   const statementTerms = extractKeyTermsFromStatement(statement).toLowerCase().split(' ')
   const paperTitleTerms = paper.title.toLowerCase().split(' ')
-  const paperAbstractTerms = paper.abstract.toLowerCase().split(' ')
+  const paperAbstract = hasUsableAbstract(paper.abstract) ? paper.abstract.toLowerCase() : ''
+  const paperAbstractTerms = paperAbstract.split(' ')
 
   let relevance = 0
   let totalMatches = 0
@@ -522,6 +544,89 @@ export function calculateStatementOverlapScore(statement: string, paper: Related
   return maxPossibleRelevance > 0 ? (relevance / maxPossibleRelevance) * 100 : 0
 }
 
+async function citationsForStatement(
+  statement: StatementWithPosition,
+  implementations: SearchImplementations
+): Promise<Citation[]> {
+  try {
+    const keyTerms = extractKeyTermsFromStatement(statement.text)
+
+    const searchPromises = [
+      withTimeout(implementations.searchArxiv(keyTerms), API_TIMEOUT.SEARCH_BATCH, [] as RelatedPaper[]),
+      withTimeout(implementations.searchOpenAlex(keyTerms), API_TIMEOUT.SEARCH_BATCH, [] as RelatedPaper[]),
+      withTimeout(implementations.searchCrossRef(keyTerms), API_TIMEOUT.SEARCH_BATCH, [] as RelatedPaper[]),
+      withTimeout(implementations.searchPubMed(keyTerms), API_TIMEOUT.SEARCH_BATCH, [] as RelatedPaper[])
+    ]
+
+    const results = await Promise.allSettled(searchPromises)
+    const [arxivResults, openAlexResults, crossRefResults, pubmedResults] = results.map(r =>
+      r.status === 'fulfilled' ? r.value : []
+    )
+
+    const allResults = [...arxivResults, ...openAlexResults, ...crossRefResults, ...pubmedResults]
+    const uniqueResults = allResults.filter((result, index, self) =>
+      index === self.findIndex(r => r.title.toLowerCase() === result.title.toLowerCase())
+    )
+
+    const scoredResults = await Promise.all(
+      uniqueResults.map(async (result) => {
+        const semanticSimilarity = await implementations.getSemanticSimilarity(statement.text, result)
+        const overlapScore = calculateStatementOverlapScore(statement.text, result)
+        const combinedScore = Math.max(Math.round(semanticSimilarity * 100), Math.round(overlapScore))
+
+        return { result, semanticSimilarity, overlapScore, combinedScore }
+      })
+    )
+
+    const rankedResults = scoredResults
+      .filter((item) => item.combinedScore >= SIMILARITY_THRESHOLDS.MIN_DISPLAY)
+      .sort((a, b) => {
+        if (b.semanticSimilarity !== a.semanticSimilarity) {
+          return b.semanticSimilarity - a.semanticSimilarity
+        }
+        return b.combinedScore - a.combinedScore
+      })
+      .slice(0, API_RESULT_LIMITS.MAX_PAPERS_PER_CITATION)
+
+    return rankedResults.map(({ result, semanticSimilarity, overlapScore, combinedScore }) => {
+      const authors = result.authors.join(', ')
+      const year = result.year
+
+      result.similarity = combinedScore
+
+      const supportingQuote = extractSupportingQuote(statement.text, hasUsableAbstract(result.abstract) ? result.abstract : '')
+
+      const semanticConfidence = semanticSimilarity > 0
+        ? CONFIDENCE.SEMANTIC_BASE + semanticSimilarity * CONFIDENCE.SEMANTIC_MULTIPLIER
+        : 0
+      const overlapConfidence = overlapScore > 0
+        ? CONFIDENCE.OVERLAP_BASE + (overlapScore / 100) * CONFIDENCE.OVERLAP_MULTIPLIER
+        : 0
+      const rawConfidence = Math.max(semanticConfidence, overlapConfidence, CONFIDENCE.MIN)
+      const confidence = Math.min(rawConfidence, CONFIDENCE.MAX)
+      const usableAbstract = hasUsableAbstract(result.abstract) ? result.abstract : undefined
+
+      return {
+        id: '',
+        text: `${authors} (${year}). ${result.title}.`,
+        authors,
+        authorList: result.authors,
+        year,
+        title: result.title,
+        confidence,
+        statement: statement.text,
+        supportingQuote: supportingQuote || usableAbstract,
+        url: isHttpUrl(result.url) ? result.url : undefined,
+        abstract: usableAbstract,
+        similarity: combinedScore
+      }
+    })
+  } catch (error) {
+    console.error('Error searching for statement:', error)
+    return []
+  }
+}
+
 /**
  * Find related papers from extracted statements
  */
@@ -529,91 +634,19 @@ export async function findRelatedPapersFromStatements(
   statements: StatementWithPosition[],
   overrides: Partial<SearchImplementations> = {}
 ): Promise<Citation[]> {
-  const citations: Citation[] = []
-  let idCounter = 1
   const implementations = buildSearchImplementations(overrides)
-  
-  for (const statement of statements) {
-    try {
-      const keyTerms = extractKeyTermsFromStatement(statement.text)
-      
-      const searchPromises = [
-        withTimeout(implementations.searchArxiv(keyTerms), API_TIMEOUT.SEARCH_BATCH, [] as RelatedPaper[]),
-        withTimeout(implementations.searchOpenAlex(keyTerms), API_TIMEOUT.SEARCH_BATCH, [] as RelatedPaper[]),
-        withTimeout(implementations.searchCrossRef(keyTerms), API_TIMEOUT.SEARCH_BATCH, [] as RelatedPaper[]),
-        withTimeout(implementations.searchPubMed(keyTerms), API_TIMEOUT.SEARCH_BATCH, [] as RelatedPaper[])
-      ]
-      
-      const results = await Promise.allSettled(searchPromises)
-      const [arxivResults, openAlexResults, crossRefResults, pubmedResults] = results.map(r => 
-        r.status === 'fulfilled' ? r.value : []
-      )
-      
-      const allResults = [...arxivResults, ...openAlexResults, ...crossRefResults, ...pubmedResults]
-      const uniqueResults = allResults.filter((result, index, self) => 
-        index === self.findIndex(r => r.title.toLowerCase() === result.title.toLowerCase())
-      )
+  const grouped = await mapWithConcurrency(
+    statements,
+    API_RESULT_LIMITS.SEARCH_CONCURRENCY,
+    (statement) => citationsForStatement(statement, implementations)
+  )
 
-      const scoredResults = await Promise.all(
-        uniqueResults.map(async (result) => {
-          const semanticSimilarity = await implementations.getSemanticSimilarity(statement.text, result)
-          const overlapScore = calculateStatementOverlapScore(statement.text, result)
-          const combinedScore = Math.max(Math.round(semanticSimilarity * 100), Math.round(overlapScore))
+  let idCounter = 1
+  const citations = grouped.flat().map((citation) => ({
+    ...citation,
+    id: `discovered-${idCounter++}`
+  }))
 
-          return { result, semanticSimilarity, overlapScore, combinedScore }
-        })
-      )
-
-      const rankedResults = scoredResults
-        .filter((item) => item.combinedScore >= SIMILARITY_THRESHOLDS.MIN_DISPLAY)
-        .sort((a, b) => {
-          if (b.semanticSimilarity !== a.semanticSimilarity) {
-            return b.semanticSimilarity - a.semanticSimilarity
-          }
-          return b.combinedScore - a.combinedScore
-        })
-        .slice(0, API_RESULT_LIMITS.MAX_PAPERS_PER_CITATION)
-
-      for (const { result, semanticSimilarity, overlapScore, combinedScore } of rankedResults) {
-        const authors = result.authors.join(', ')
-        const year = result.year
-
-        result.similarity = combinedScore
-
-        const supportingQuote = extractSupportingQuote(statement.text, result.abstract)
-
-        const semanticConfidence = semanticSimilarity > 0 
-          ? CONFIDENCE.SEMANTIC_BASE + semanticSimilarity * CONFIDENCE.SEMANTIC_MULTIPLIER 
-          : 0
-        const overlapConfidence = overlapScore > 0 
-          ? CONFIDENCE.OVERLAP_BASE + (overlapScore / 100) * CONFIDENCE.OVERLAP_MULTIPLIER 
-          : 0
-        const rawConfidence = Math.max(semanticConfidence, overlapConfidence, CONFIDENCE.MIN)
-        const confidence = Math.min(rawConfidence, CONFIDENCE.MAX)
-        const usableAbstract = result.abstract && !/no abstract available/i.test(result.abstract)
-          ? result.abstract
-          : undefined
-
-        citations.push({
-          id: `discovered-${idCounter++}`,
-          text: `${authors} (${year}). ${result.title}.`,
-          authors,
-          authorList: result.authors,
-          year,
-          title: result.title,
-          confidence,
-          statement: statement.text,
-          supportingQuote: supportingQuote || usableAbstract,
-          url: result.url && result.url !== '#' ? result.url : undefined,
-          abstract: usableAbstract,
-          similarity: combinedScore
-        })
-      }
-    } catch (error) {
-      console.error('Error searching for statement:', error)
-    }
-  }
-  
   return citations.sort((a, b) => b.confidence - a.confidence)
 }
 
@@ -627,10 +660,15 @@ export async function searchRelatedPapers(
 ): Promise<RelatedPaper[]> {
   const allPapers: RelatedPaper[] = []
   const seenTitles = new Set<string>()
+  const seenStatementPapers = new Set<string>()
   const implementations = buildSearchImplementations(overrides)
 
   const discoveredCitations = citations.filter(c => c.statement)
-  const existingCitations = citations.filter(c => !c.statement)
+  const existingCitations = citations
+    .filter(c => !c.statement)
+    .slice(0, API_RESULT_LIMITS.MAX_EXISTING_CITATIONS_SEARCHED)
+
+  const generalPaperCount = () => allPapers.filter((paper) => !paper.statement).length
 
   // Process discovered citations
   for (const citation of discoveredCitations) {
@@ -653,7 +691,7 @@ export async function searchRelatedPapers(
       authors: authorList.length > 0 ? authorList : ['Unknown Author'],
       year: citation.year || 'Unknown',
       abstract: citation.abstract?.trim() || citation.supportingQuote || 'No abstract available.',
-      url: citation.url && citation.url !== '#'
+      url: isHttpUrl(citation.url)
         ? citation.url
         : citation.title
           ? `https://scholar.google.com/scholar?q=${encodeURIComponent(citation.title)}`
@@ -663,8 +701,11 @@ export async function searchRelatedPapers(
       supportingQuote: citation.supportingQuote
     }
 
-    if (!seenTitles.has(paper.title.toLowerCase())) {
-      seenTitles.add(paper.title.toLowerCase())
+    const titleKey = paper.title.trim().toLowerCase()
+    const statementKey = `${titleKey}::${paper.statement}`
+    if (!seenStatementPapers.has(statementKey)) {
+      seenStatementPapers.add(statementKey)
+      seenTitles.add(titleKey)
       allPapers.push(paper)
     }
   }
@@ -672,7 +713,7 @@ export async function searchRelatedPapers(
   // Process existing citations
   for (const citation of existingCitations) {
     const searchQuery = citation.title || citation.authors || citation.text.substring(0, 100)
-    if (!searchQuery || allPapers.length >= API_RESULT_LIMITS.MAX_PAPERS_TOTAL) continue
+    if (!searchQuery || generalPaperCount() >= API_RESULT_LIMITS.MAX_PAPERS_TOTAL) continue
 
     try {
       const [arxivResults, openAlexResults, crossrefResults, pubmedResults] = await Promise.allSettled([
@@ -689,16 +730,18 @@ export async function searchRelatedPapers(
       let addedForCitation = 0
 
       for (const paper of results) {
-        if (allPapers.length >= API_RESULT_LIMITS.MAX_PAPERS_TOTAL || addedForCitation >= API_RESULT_LIMITS.MAX_PAPERS_PER_CITATION) {
+        if (generalPaperCount() >= API_RESULT_LIMITS.MAX_PAPERS_TOTAL || addedForCitation >= API_RESULT_LIMITS.MAX_PAPERS_PER_CITATION) {
           break
         }
 
-        if (!seenTitles.has(paper.title.toLowerCase())) {
+        const titleKey = paper.title.trim().toLowerCase()
+        if (!seenTitles.has(titleKey)) {
           const similarityScore = await implementations.calculateSimilarityScore(searchQuery, paper)
 
           if (similarityScore < SIMILARITY_THRESHOLDS.MIN_DISPLAY) continue
 
-          seenTitles.add(paper.title.toLowerCase())
+          seenTitles.add(titleKey)
+          paper.url = isHttpUrl(paper.url) ? paper.url : undefined
           paper.similarity = similarityScore
           allPapers.push(paper)
           addedForCitation++

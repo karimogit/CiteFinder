@@ -1,4 +1,5 @@
 import { MetadataRoute } from 'next'
+import { getSiteUrl } from '@/lib/site'
 
 export default function robots(): MetadataRoute.Robots {
   return {
@@ -7,6 +8,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: '/',
       disallow: ['/api/', '/_next/', '/admin/'],
     },
-    sitemap: 'https://citefinder.app/sitemap.xml',
+    sitemap: `${getSiteUrl()}/sitemap.xml`,
   }
 } 

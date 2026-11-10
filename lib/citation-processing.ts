@@ -19,6 +19,30 @@ interface CandidateSegment {
   endIndex: number
 }
 
+// Words that match "Name (Year)" but are not author names.
+const NON_AUTHOR_TOKENS = new Set([
+  'a', 'an', 'the', 'this', 'that', 'these', 'those',
+  'in', 'on', 'by', 'as', 'at', 'if', 'of', 'to', 'we', 'it', 'is', 'or', 'be',
+  'for', 'and', 'but', 'not', 'our', 'their', 'from', 'with', 'via', 'per',
+  'after', 'before', 'during', 'between', 'among', 'across', 'through', 'under', 'over',
+  'using', 'based', 'given', 'following', 'within', 'without',
+  'see', 'shown', 'noted', 'found', 'reported', 'according',
+  'figure', 'table', 'section', 'equation', 'chapter', 'appendix',
+  'model', 'algorithm', 'method', 'results', 'discussion', 'introduction',
+  'conclusion', 'abstract', 'fig', 'tab', 'eq'
+])
+
+function leadingAuthorToken(value: string | undefined): string {
+  if (!value) return ''
+  const cleaned = value.replace(/^[\s("'[(]+/, '')
+  return (cleaned.split(/[\s,.(]/)[0] || '').toLowerCase()
+}
+
+function isPlausibleAuthorCitation(citationText: string, authors: string | undefined): boolean {
+  const token = leadingAuthorToken(authors) || leadingAuthorToken(citationText)
+  return token.length >= 2 && !NON_AUTHOR_TOKENS.has(token)
+}
+
 // Citation extraction patterns
 const CITATION_PATTERNS = [
   // APA style
@@ -30,9 +54,9 @@ const CITATION_PATTERNS = [
   // Simple author-year: (Author, Year)
   /\(([A-Z][a-z]+(?:\s+et\s+al\.)?,\s*\d{4})\)/g,
   // Author et al. (Year)
-  /([A-Z][a-z]+\s+et\s+al\.\s*\(\d{4}\))/g,
+  /\b([A-Z][a-z]+\s+et\s+al\.\s*\(\d{4}\))/g,
   // Basic author-year format
-  /([A-Z][a-z]+\s+\(\d{4}\))/g
+  /\b([A-Z][a-z]+\s+\(\d{4}\))/g
 ]
 
 // Factual statement patterns
@@ -80,6 +104,10 @@ export function extractCitations(text: string): Citation[] {
         const year = extractYear(citationText)
         const authors = extractAuthors(citationText)
         const title = extractTitle(citationText)
+
+        if (!isPlausibleAuthorCitation(citationText, authors)) {
+          continue
+        }
         
         // Calculate confidence based on completeness
         let confidence = CONFIDENCE.BASE

@@ -1,15 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Citation, RelatedPaper, StatementWithPosition } from '@/types'
 import { parsePDF } from '@/lib/pdf-parser'
-import { FILE_LIMITS } from '@/lib/constants'
+import { API_RESULT_LIMITS, FILE_LIMITS } from '@/lib/constants'
 import { extractCitations, extractStatements } from '@/lib/citation-processing'
 import { findRelatedPapersFromStatements, missingAbstractWarning, normalizeRelatedPapers, searchRelatedPapers } from '@/lib/api-search'
+import { checkRateLimit, contentLengthExceeds, requestClientKey } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
   try {
+    if (contentLengthExceeds(request.headers.get('content-length'), FILE_LIMITS.MAX_SIZE_BYTES + 1024 * 1024)) {
+      return NextResponse.json(
+        { error: `File size too large. Please upload a PDF smaller than ${FILE_LIMITS.MAX_SIZE_MB}MB.` },
+        { status: 413 }
+      )
+    }
+
+    const limit = checkRateLimit(requestClientKey((name) => request.headers.get(name)))
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please wait a few minutes and try again.' },
+        { status: 429, headers: { 'Retry-After': String(limit.retryAfterSeconds) } }
+      )
+    }
+
     const formData = await request.formData()
     const file = formData.get('pdf') as File
     const warnings: string[] = []
@@ -97,8 +113,12 @@ export async function POST(request: NextRequest) {
     
     // Find related papers from statements
     let discoveredCitations: Citation[] = []
+    const statementsForSearch = statements.slice(0, API_RESULT_LIMITS.MAX_STATEMENTS_SEARCHED)
+    if (statements.length > statementsForSearch.length) {
+      warnings.push(`Sources were matched for the first ${statementsForSearch.length} extracted statements so the search can finish reliably.`)
+    }
     try {
-      discoveredCitations = await findRelatedPapersFromStatements(statements)
+      discoveredCitations = await findRelatedPapersFromStatements(statementsForSearch)
     } catch (error) {
       warnings.push('We could not match statements to supporting papers from every source.')
       discoveredCitations = []
@@ -107,6 +127,10 @@ export async function POST(request: NextRequest) {
     // Combine all citations
     const allCitations = [...existingCitations, ...discoveredCitations]
     
+    if (existingCitations.length > API_RESULT_LIMITS.MAX_EXISTING_CITATIONS_SEARCHED) {
+      warnings.push(`Inline citation lookup used the ${API_RESULT_LIMITS.MAX_EXISTING_CITATIONS_SEARCHED} strongest citations so the search can finish reliably.`)
+    }
+
     // Search for related papers
     let relatedPapers: RelatedPaper[] = []
     try {

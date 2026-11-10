@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Fraunces, Outfit } from 'next/font/google'
 import './globals.css'
 import Footer from '@/components/Footer'
+import { getSiteUrl } from '@/lib/site'
 import { Providers } from './providers'
 
 const display = Fraunces({
@@ -18,7 +19,7 @@ const sans = Outfit({
   weight: ['400', '500', '600', '700'],
 })
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://citefinder.app'
+const siteUrl = getSiteUrl()
 
 export const metadata: Metadata = {
   title: 'CiteFinder | Academic Source Finder',
